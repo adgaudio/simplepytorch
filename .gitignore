@@ -1,0 +1,9 @@
+__pycache__
+.ropeproject
+*.egg-info/
+*.pyc
+*.zip
+*.npy
+*.npz
+data/
+.tags
