@@ -23,7 +23,7 @@ setup(
         "Programming Language :: Python :: 3.8",
     ],
     include_package_data=True,
-    packages=['simplepytorch'],
+    packages=['simplepytorch', 'simplepytorch.datasets'],
     scripts=['./bin/simplepytorch_plot', 'bin/simplepytorch', './bin/simplepytorch_debug'],
     install_requires=[
         "torchvision", "torch", "pyjq", "pretrainedmodels", "pandas", "numpy",
