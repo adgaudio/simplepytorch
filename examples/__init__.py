@@ -1,0 +1,1 @@
+from examples.my_feedforward_model_config import LetsTrainSomething
