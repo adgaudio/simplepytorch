@@ -40,7 +40,7 @@ Install
 ===
 
 ```
-pip install simplepytorch
+pip install --upgrade simplepytorch
 ```
 
 Quick Start
