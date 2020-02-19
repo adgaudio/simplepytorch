@@ -11,7 +11,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
     name='simplepytorch',
-    version='0.0.0',
+    version='0.0.1',
     description='Setup and train deep nets with PyTorch. Opinionated and Simple.',
     long_description=README,
     long_description_content_type="text/markdown",
@@ -21,7 +21,7 @@ setup(
     classifiers=[
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3.8",
-    ]
+    ],
     include_package_data=True,
     packages=['simplepytorch'],
     scripts=['./bin/simplepytorch_plot', 'bin/simplepytorch', './bin/simplepytorch_debug'],
