@@ -10,7 +10,7 @@ part="$1"  # major | minor | patch
 bumpversion "$part"
 
 python3 setup.py sdist bdist_wheel
-twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+twine upload dist/*
 
 # py
 # pip install --index-url https://test.pypi.org/simple/ simplepytorch
