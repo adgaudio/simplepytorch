@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+# interactive plots
+ipython -im simplepytorch.plot_perf -- $*

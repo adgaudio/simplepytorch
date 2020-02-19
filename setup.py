@@ -7,5 +7,6 @@ setup(
     version='0.01',
     description='Setup and train deep nets with PyTorch. Opinionated and Simple.',
     author='Alex Gaudio',
-    packages=['SimplePyTorch']
+    packages=['simplepytorch'],
+    scripts=['./bin/simplepytorch_plot', 'bin/simplepytorch', './bin/simplepytorch_debug']
 )
