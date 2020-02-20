@@ -14,6 +14,7 @@ twine upload dist/*
 
 rm -rf dist/
 
+git push
 git push --tags
 # py
 # pip install --index-url https://test.pypi.org/simple/ simplepytorch
