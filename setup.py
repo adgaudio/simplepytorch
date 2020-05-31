@@ -26,7 +26,10 @@ setup(
     packages=['simplepytorch', 'simplepytorch.datasets'],
     scripts=['./bin/simplepytorch_plot', 'bin/simplepytorch', './bin/simplepytorch_debug'],
     install_requires=[
-        "torchvision", "torch", "pyjq", "pretrainedmodels", "pandas", "numpy",
+        "torchvision", "torch", "pretrainedmodels", "pandas", "numpy",
         "configargparse", "pillow", "scikit-learn", "matplotlib",
         "efficientnet_pytorch"],
+    extras_require={
+        'dataset_qualdr': ["pyjq", ]
+    }
 )
