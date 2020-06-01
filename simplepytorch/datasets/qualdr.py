@@ -1,6 +1,10 @@
 import json
 import os.path
-import pyjq
+try:
+    import pyjq
+except ModuleNotFoundError:
+    import logging
+    logging.warn("QualDR dataset labels unavailable because pyjq not installed")
 import random
 import statistics
 import torchvision.transforms as tvt
