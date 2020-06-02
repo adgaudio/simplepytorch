@@ -4,7 +4,7 @@ Code available to model configs, assembled all in one place
 import torch.utils.data as TD
 import torch.multiprocessing
 
-from . import confusion_matrix_stats
+from . import metrics
 from . import datasets
 from .cache import Cache
 from .cmdline import ModelConfigABC, CmdlineOptions
