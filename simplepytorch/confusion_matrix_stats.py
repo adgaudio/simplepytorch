@@ -1,6 +1,44 @@
 import torch
 
 
+def create_confusion_matrix(y, yhat, normalize_y=True):
+    """Confusion Matrix enables performance evaluation of a classifier model.
+
+    Each row corresponds to a true class and represents the
+    distribution of predicted values when that class was the correct one.
+
+    Let `n` represent the number of (minibatch) samples and `m` represent the
+    number of classes.  Basically, compute the outer product `y y_{hat}^T` for
+    each of the `n` samples and sum the resulting matrices.
+
+    This is a bit more general than the typical description of a confusion
+    matrix, in that the ground truth `y` values can be fractions.
+
+    :y:  (n,m) matrix of true values (e.g. if multi-class, each row is one-hot).
+        In general, it doesn't make sense if y has negative values.
+    :yhat:  (n,m) matrix of predicted values.  Note: All `m` classes should
+        have the same bounds (ie they are all logits).
+        e.g. `yhat = softmax(model(x))`
+        or a multi-class setting: `yhat = model(x).argmax(1)`
+    :normalize_y:  If True, each row of `y` is converted to a probability
+        distribution to determine what fraction of `yhat` to assign to each
+        row.  If False, y is not normalized.  False is useful if `y` encodes
+        the notion that different samples have different weights; the
+        attribution of yhat vector to the relevant classes for sample A should
+        have more contribution than those for sample B.
+
+    :returns: an (m,m) confusion matrix.
+    """
+    # --> convert each row of y into a probability distribution
+    if normalize_y:
+        w = y / y.sum(1, keepdims=1)
+    else:
+        w = y
+    # --> compute outer product w yhat^T for each of the n samples.  This gives
+    # a confusion matrix for each sample.  Sum the matrices.
+    return T.einsum('nm,no->mo', w, yhat)
+
+
 def accuracy(cm):
     return cm.trace() / cm.sum()
 
