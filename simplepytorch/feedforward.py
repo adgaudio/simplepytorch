@@ -173,23 +173,24 @@ class FeedForwardModelConfig(ModelConfigABC):
 
     def log_minibatch(self, extra_log_data=None, *,
                       batch_idx, X=None, y=None, yhat=None, loss=None):
-        """You can override this method to log something for each minibatch.
+        """You can override this method to log something for each minibatch or
+        to store/aggregate mid-epoch performance results.
 
-        It is expected that `train_one_epoch` will call this function for each
-        minibatch.
+        It is expected that `train_one_epoch` will call this function once for
+        each minibatch.
 
-        Add your extra_log_data like below.  You can also
-        store or aggregate metrics in a cache that may be useful for the
-        `log_epoch` function:
+        Example implementation in your class:
 
             def log_minibatch(self, batch_idx, X, y, yhat, loss):
-                extra_log_data = {'train_loss': loss.item()}
-                super().log_minibatch(extra_log_data, batch_idx=batch_idx)
-
-                # you can also store cumulative data for the log_epoch function
+                # you can store cumulative data for the log_epoch function
                 self.epoch_cache.streaming_mean(
                     'train_loss', loss.item(), batch_size),
                 self.epoch_cache.streaming_mean('train_acc', .5, batch_size)
+
+                # if you want, add a row to the log that describes the minibatch
+                extra_log_data = {'train_loss': loss.item()}
+                super().log_minibatch(extra_log_data, batch_idx=batch_idx)
+
         """
         intv = self.log_minibatch_interval
         if intv > 0 and batch_idx % intv == intv - 1:
