@@ -54,7 +54,6 @@ def train(config):
 class FeedForwardModelConfig(ModelConfigABC):
     run_id = str
 
-    batch_size = int
     epochs = int
     base_dir = './data'
 
@@ -393,6 +392,7 @@ class FeedForwardBinaryClassifier(FeedForwardModelConfig):
     validation accuracy into the logs.  For a binary classifier. Model config
     would inherit from this class instead of FeedForward.
     """
+    batch_size = int
     def log_minibatch(self, extra_log_data=None, *,
                       batch_idx, X, y, yhat, loss):
         num_correct = y.int().eq((yhat.view_as(y) > .5).int()).sum().item()
