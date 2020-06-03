@@ -16,6 +16,7 @@ def create_confusion_matrix(y, yhat, normalize_y=True):
 
     :y:  (n,m) matrix of true values (e.g. if multi-class, each row is one-hot).
         In general, it doesn't make sense if y has negative values.
+        e.g. for binary classification, set m=2.
     :yhat:  (n,m) matrix of predicted values.  Note: All `m` classes should
         have the same bounds (ie they are all logits).
         e.g. `yhat = softmax(model(x))`
@@ -31,12 +32,12 @@ def create_confusion_matrix(y, yhat, normalize_y=True):
     """
     # --> convert each row of y into a probability distribution
     if normalize_y:
-        w = y / y.sum(1, keepdims=1)
+        w = y / y.sum(1, keepdims=True)
     else:
         w = y
     # --> compute outer product w yhat^T for each of the n samples.  This gives
     # a confusion matrix for each sample.  Sum the matrices.
-    return T.einsum('nm,no->mo', w, yhat)
+    return torch.einsum('nm,no->mo', w, yhat)
 
 
 def accuracy(cm):
