@@ -31,13 +31,13 @@ class CheXpert(GlobImageDir):
             -1:  diagnosis uncertain
             0:   negative
             1:   positive
-        We re-assign Nan to -2 by default.
+        We re-assign Nan to -2 by default for diagnostic classes.
 
         By default, we also convert all labels to numeric values:
-            - all Nan are reassigned to -2
-            - Frontal/Lateral:  Frontal = 1, Lateral = 2.
-            - AP/PA:  nan=-2, AP=1, PA=2, LL=3, RL=4
-            - Sex: Unknown= 1, Female=2, Male=3
+            - all Nan for diagnostic classes are reassigned to -2
+            - Frontal/Lateral:  Frontal = 0, Lateral = 1.
+            - AP/PA:  nan=-1, AP=0, PA=1, LL=2, RL=3
+            - Sex: Unknown=0, Female=1, Male=2
 
 
     """
@@ -47,19 +47,19 @@ class CheXpert(GlobImageDir):
         'Lung Lesion', 'Edema', 'Consolidation', 'Pneumonia',
         'Atelectasis', 'Pneumothorax', 'Pleural Effusion',
         'Pleural Other', 'Fracture', 'Support Devices']
-    LABELS_ALL = ['Sex', 'Age', 'Frontal/Lateral', 'AP/PA'] + LABELS_DIAGNOSTIC
+    LABELS_METADATA = ['Sex', 'Age', 'Frontal/Lateral', 'AP/PA']
+    LABELS_ALL = LABELS_METADATA + LABELS_DIAGNOSTIC
 
-    LABEL_CLEANUP_DICT = {col: {np.nan: -2} for col in LABELS_ALL}
-    LABEL_CLEANUP_DICT['Frontal/Lateral'].update(
-        {'Frontal': 1, 'Lateral': 2})
-    LABEL_CLEANUP_DICT['AP/PA'].update(
-        {'AP': 1, 'PA': 2, 'LL': 3, 'RL': 4})
-    LABEL_CLEANUP_DICT['Sex'].update(
-        {'Unknown': 1, 'Female': 2, 'Male': 3})
+    LABEL_CLEANUP_DICT = {
+        col: {0:0, 1:1, -1:2, np.nan: 3, } for col in LABELS_DIAGNOSTIC}
+    LABEL_CLEANUP_DICT.update({
+        'Frontal/Lateral': {'Frontal': 0, 'Lateral': 1}, 
+        'AP/PA': {'AP': 0, 'PA': 1, 'LL': 2, 'RL': 3, np.nan: 4},
+        'Sex': {'Female': 0, 'Male': 1, 'Unknown': 2},
+        'Age': {i: i for i in range(90)}})
 
     @staticmethod
-    def format_labels(getitem_dct: dict, labels=LABELS_ALL,
-                      ret_type=T.tensor, label_cleanup_dct=LABEL_CLEANUP_DICT):
+    def format_labels(getitem_dct: dict, labels=LABELS_ALL, explode=False):
         """Helper method for converting the labels into a tensor or numpy array.
 
         :dct: the dict received in getitem_transform.
@@ -69,11 +69,25 @@ class CheXpert(GlobImageDir):
             Lesion', 'Edema', 'Consolidation', 'Pneumonia', 'Atelectasis',
             'Pneumothorax', 'Pleural Effusion', 'Pleural Other', 'Fracture',
             'Support Devices'].
-        :ret_type: np.array or torch.tensor  (pytorch tensor by default)
-        :returns: np.array or torch.tensor of numeric label values
+        :explode: If true, convert each class into a one-hot vector.
+          For instance, 'Age' would get expanded into a one-hot vector of 90
+          ages.  The diagnostic classes are expanded to four values
+          corresponding to [0 (neg), 1 (pos), 2 (uncertain), 3 (blank)].
+
+        :returns: If explode=False, return torch.tensor of numeric label values.
+            If explode=True, return [(label_name: torch.tensor(one_hot)), ...]
         """
-        lab = T.tensor(getitem_dct['labels'][labels])
-        return lab
+        if explode:
+            y = []
+            for lname in labels:
+                tmp = T.zeros(
+                    len(CheXpert.LABEL_CLEANUP_DICT[lname]), dtype=T.int8)
+                tmp[getitem_dct['labels'][lname]] = 1
+                y.append(tmp)
+            y = T.cat(y)
+        else:
+            y = T.tensor(getitem_dct['labels'][labels])
+        return y
 
     def __init__(self, dataset_dir="./data/CheXpert-v1.0/",
                  use_train_set=True,
@@ -105,6 +119,8 @@ class CheXpert(GlobImageDir):
         # clean up the labels csv
         if label_cleanup_dct is not None:
             self.labels_csv.replace(label_cleanup_dct, inplace=True)
+            self.labels_csv = self.labels_csv.astype('int8')
+
 
 
     def __getitem__(self, index, _getitem_transform=True):
@@ -129,7 +145,7 @@ if __name__ == "__main__":
     """
 
     #  dset = CheXpert()
-    dset = CheXpert_Small(use_train_set=False)
+    dset = CheXpert_Small(use_train_set=False, getitem_transform=lambda x: (x['image'], CheXpert.format_labels(x, explode=True)))
     print('z = dset[0] ; print(img, av_mask = z)')
     z = dset[0]
     print('image x-ray size:', z[0].shape)
