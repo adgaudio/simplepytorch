@@ -9,7 +9,6 @@ import pandas as pd
 import pickle
 import os
 import os.path as osp
-from os.path import dirname, abspath
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -19,6 +18,28 @@ class DataLoggerException(Exception):
     pass
 
 
+class _LogRotate_LazyPassthrough:
+    """Transparent class for handling log rotation only when a method or
+    attribute from the logger is accessed"""
+    def __init__(self, kls, init_data_logger_func, utcnow, *args, **kwargs):
+        self._kls = kls
+        self._args = args
+        self._kwargs = kwargs
+        self._initialized_logger_instance = None
+        self.init_data_logger_func = init_data_logger_func
+        self.utcnow = utcnow
+
+    def __getattribute__(self, attr_name):
+        ga = object.__getattribute__
+        if ga(self, '_initialized_logger_instance') is None:
+            args, kwargs = ga(self, '_args'), ga(self, '_kwargs')
+            utcnow = ga(self, 'utcnow')
+            ga(self, 'init_data_logger_func')(utcnow, *args, **kwargs)
+            setattr(self, '_initialized_logger_instance', ga(self, '_kls')(
+                *args, **kwargs))
+        return getattr(
+            ga(self,'_initialized_logger_instance'), attr_name)
+
 class LogRotate:
     """Store a history of any data logger to avoid overwriting old results
 
@@ -27,12 +48,26 @@ class LogRotate:
     If the log filepath is "./a/b/c.csv" then it will get renamed to
     ./a/b/log/{utc_timestamp}_c.csv and a symlink to './a/b/c.csv' will point
     to the file.
-    """
-    def __init__(self, data_logger_kls):
-        self.kls = data_logger_kls
 
-    def __call__(self, log_fp, *args, **kwargs):
+    :lazy_init:  If True, don't perform log rotate or initialize the logger
+    class until an attribute or method is invoked from it.  This avoids writing
+    to disk or doing rotation until the moment the file is written to.
+    Even if lazy loading causes the log file to be created several minutes late,
+    the start time used to define the log filename will be correct.
+    """
+    def __init__(self, data_logger_kls, lazy_init=True):
+        self.kls = data_logger_kls
+        self.lazy_init = lazy_init
+
+    def __call__(self, *args, **kwargs):
         utcnow = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')
+        if self.lazy_init:
+            return _LogRotate_LazyPassthrough(
+                self.kls, self.init_data_logger, utcnow, *args, **kwargs)
+        else:
+            return self.init_data_logger(utcnow, log_fp, *args, **kwargs)
+
+    def init_data_logger(self, utcnow, log_fp, *args, **kwargs):
         replacement_log_fp = f'{osp.dirname(log_fp)}/log/{utcnow}_{osp.basename(log_fp)}'
 
         if osp.islink(log_fp):
