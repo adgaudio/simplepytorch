@@ -1,12 +1,12 @@
 import pandas as pd
 import torch as T
 import torchvision.transforms as tvt
-import re
 import numpy as np
-from .glob_image_dir import GlobImageDir
+from os.path import join
+import PIL
 
 
-class CheXpert(GlobImageDir):
+class CheXpert:
     """Load CheXpert Dataset, assuming you already have a copy on disk.
     This loads the images and labels under the "train" directory, and applies
     optional transforms.  We also clean up the labels.
@@ -51,12 +51,16 @@ class CheXpert(GlobImageDir):
     LABELS_ALL = LABELS_METADATA + LABELS_DIAGNOSTIC
 
     LABEL_CLEANUP_DICT = {
-        col: {0:0, 1:1, -1:2, np.nan: 3, } for col in LABELS_DIAGNOSTIC}
+        col: {0:0,  # negative
+              1:1,  # positive
+              -1:2, # unclear whether positive or negative
+              np.nan: 3,  # no marking by physician was found with labeling tool
+              } for col in LABELS_DIAGNOSTIC}
     LABEL_CLEANUP_DICT.update({
-        'Frontal/Lateral': {'Frontal': 0, 'Lateral': 1}, 
+        'Frontal/Lateral': {'Frontal': 0, 'Lateral': 1},
         'AP/PA': {'AP': 0, 'PA': 1, 'LL': 2, 'RL': 3, np.nan: 4},
         'Sex': {'Female': 0, 'Male': 1, 'Unknown': 2},
-        'Age': {i: i for i in range(90)}})
+        'Age': {i: i for i in range(91)}})
 
     @staticmethod
     def format_labels(getitem_dct: dict, labels=LABELS_ALL, explode=False):
@@ -75,7 +79,8 @@ class CheXpert(GlobImageDir):
           corresponding to [0 (neg), 1 (pos), 2 (uncertain), 3 (blank)].
 
         :returns: If explode=False, return torch.tensor of numeric label values.
-            If explode=True, return [(label_name: torch.tensor(one_hot)), ...]
+            If explode=True, return [torch.tensor(one_hot), ...] corresponding
+            to the given `labels`.
         """
         if explode:
             y = []
@@ -84,7 +89,6 @@ class CheXpert(GlobImageDir):
                     len(CheXpert.LABEL_CLEANUP_DICT[lname]), dtype=T.int8)
                 tmp[getitem_dct['labels'][lname]] = 1
                 y.append(tmp)
-            y = T.cat(y)
         else:
             y = T.tensor(getitem_dct['labels'][labels])
         return y
@@ -98,35 +102,36 @@ class CheXpert(GlobImageDir):
                  ):
 
         train_or_valid = 'train' if use_train_set else 'valid'
-        img_fp_glob = f"{dataset_dir.rstrip('/')}/{train_or_valid}/patient*/study*/*.jpg"
         label_fp = f"{dataset_dir.rstrip('/')}/{train_or_valid}.csv"
         self.labels_csv = pd.read_csv(label_fp).set_index('Path')
 
-        super().__init__(img_fp_glob, img_transform)
-
         # join the labels_csv Path column to the actual filepath
-        match = re.search(
-            f'CheXpert-v1.0(-small)?/{train_or_valid}/patient', self.fps[0])
-        if match is None:
-            raise Exception((
-                "The directory containing CheXpert data should"
-                " have either of these names, spelled exactly like this:"
-                " CheXpert-v1.0 or CheXpert-v1.0-small."
-                " Please pass a correct `dataset_dir`"))
-        self.idx_for_fp_to_csv_matching = match.start()
+        start_idx = self.labels_csv.index[0].index('/') + 1
+        self.fps = [join(dataset_dir, x[start_idx:])
+                    for x in self.labels_csv.index]
         self.__getitem_transform = getitem_transform
+        self.__img_transform = img_transform
 
         # clean up the labels csv
         if label_cleanup_dct is not None:
             self.labels_csv.replace(label_cleanup_dct, inplace=True)
             self.labels_csv = self.labels_csv.astype('int8')
 
+    def __len__(self):
+        return self.labels_csv.shape[0]
 
+    def _getimage(self, index):
+        fp = self.fps[index]
+        with PIL.Image.open(fp) as im:
+            im.load()
+        if self.__img_transform:
+            im = self.__img_transform(im)
+        dct = {'image': im, 'fp': fp}
+        return dct
 
     def __getitem__(self, index, _getitem_transform=True):
-        sample = super().__getitem__(index)
-        sample['labels'] = self.labels_csv.loc[
-            sample['fp'][self.idx_for_fp_to_csv_matching:]]
+        sample = self._getimage(index)
+        sample['labels'] = self.labels_csv.iloc[index]
         if _getitem_transform and self.__getitem_transform is not None:
             return self.__getitem_transform(sample)
         else:
@@ -148,5 +153,6 @@ if __name__ == "__main__":
     dset = CheXpert_Small(use_train_set=False, getitem_transform=lambda x: (x['image'], CheXpert.format_labels(x, explode=True)))
     print('z = dset[0] ; print(img, av_mask = z)')
     z = dset[0]
+
     print('image x-ray size:', z[0].shape)
     print('labels', z[1])
