@@ -13,7 +13,9 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
 
-def load_model_config(ns: ap.Namespace):
+def load_model_config(ns: ap.Namespace = None):
+    if ns is None:
+        ns = build_arg_parser().parse_args()
     # merge cmdline config with defaults
     config_overrides = ns.__dict__
     config = config_overrides.pop('modelconfig_class')(config_overrides)
@@ -25,13 +27,14 @@ def load_model_config(ns: ap.Namespace):
     return config
 
 
-def main(ns: ap.Namespace):
+def main():
     """Initialize model and run from command-line"""
-
+    # --> logging initialization
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     logging.getLogger(__name__.split('.')[0]).setLevel(logging.INFO)
-
-    config = load_model_config(ns)
+    # --> initialize model configuration
+    config = load_model_config()
+    # --> start training or run your code
     config.run()
 
 
@@ -225,7 +228,7 @@ def build_arg_parser():
         fp = sys.argv.pop(1)
         #  kls = sys.argv[2]
         assert fp not in ['-h', '--help']
-    except:
+    except IndexError:
         print("usage:  <filepath> \nplease pass filepath to Python module containing your model config class")
         sys.exit(1)
     MC = dynamically_import_model_configs(fp)

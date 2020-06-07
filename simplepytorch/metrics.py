@@ -12,7 +12,10 @@ def create_confusion_matrix(y, yhat, normalize_y=True):
     each of the `n` samples and sum the resulting matrices.
 
     This is a bit more general than the typical description of a confusion
-    matrix, in that the ground truth `y` values can be fractions.
+    matrix, in that the ground truth `y` values can be fractions, multi-label
+    and not necessarily sum to 1.  The trade-off is that y and yhat are never
+    1-dimensional (e.g. for binary classification, both y and yhat have two
+    columns).
 
     :y:  (n,m) matrix of true values (e.g. if multi-class, each row is one-hot).
         In general, it doesn't make sense if y has negative values.
@@ -26,7 +29,8 @@ def create_confusion_matrix(y, yhat, normalize_y=True):
         row.  If False, y is not normalized.  False is useful if `y` encodes
         the notion that different samples have different weights; the
         attribution of yhat vector to the relevant classes for sample A should
-        have more contribution than those for sample B.
+        have more contribution than those for sample B.  (Assumes the sum
+        of a row of y never equals zero.)
 
     :returns: an (m,m) confusion matrix.
     """

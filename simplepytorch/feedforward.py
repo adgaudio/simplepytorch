@@ -3,12 +3,10 @@ Config and functions to train and test feedforward networks using backprop
 """
 from collections import namedtuple
 import time
-from efficientnet_pytorch import EfficientNet
 from os.path import join
 import os
 import abc
 import logging
-import pretrainedmodels
 import numpy as np
 import random
 import torch
@@ -61,38 +59,49 @@ class FeedForwardModelConfig(ModelConfigABC):
 
     @abc.abstractmethod
     def get_lossfn(self):
-        # return torch.nn.BCELoss()
+        """Should set `self.lossfn`.  For example:
+
+        def get_lossfn(self):
+            self.lossfn = torch.nn.BCELoss()
+        """
         raise NotImplementedError("Your implementation here")
 
     @abc.abstractmethod
     def get_optimizer(self):
-        #  return torch.optim.Adam(
-        #      self.model.parameters(), **self.__optimizer_params.kwargs(self))
+        """Should set `self.optimizer`.  For example:
+
+        def get_optimizer(self):
+            self.optimizer = torch.optim.Adam(
+                self.model.parameters(), **self.__optimizer_params.kwargs(self))
+        """
         raise NotImplementedError("Your implementation here")
 
     @abc.abstractmethod
     def get_datasets(self, datasets=None):
-        """Convenience function.  Not necessary, but could be helpful
-        to implement this method if you have data loaders or configuration that
-        change depending on the dataset.  Example implementation:
+        """You should set `self.datasets`.  Convenience function.  Not
+        necessary, but usually helpful especially if data loaders or
+        configuration that change depending on the dataset.  Example
+        implementation:
 
         def get_datasets(self):
-            return super().get_datasets({
-                'myimagenet': torch.utils.data.Dataset(),
-                'myotherset': torch.utils.data.Dataset(),
-                'mytestdata': torch.utils.data.Dataset()})
+            super().get_datasets({
+                'my_train_set': torch.utils.data.Dataset(),
+                'my_test_set': torch.utils.data.Dataset()})
 
         Then, it's available to your class methods as, for example:
-            self.datasets.myimagenet
+            self.datasets.my_train_set
         """
         if datasets is not None:
-            return namedtuple('datasets', datasets.keys())(**datasets)
+            self.datasets = namedtuple('datasets', datasets.keys())(**datasets)
 
     @abc.abstractmethod
     def get_data_loaders(self, loaders):
-        """Implement your data loaders.  If you use the default
-        `train_one_epoch` function, you will need a 'train' loader.  Any other
-        loaders you may define depend on how you use them.
+        """Implement your data loaders.  They will be available as a
+        namedtuple `self.data_loaders`.
+
+        If you use the default `train_one_epoch` function, you must define a
+        'train' loader.  Any other loaders (like 'val') you may define and use
+        as you wish.
 
         def get_data_loaders(self):
             return super().get_data_loaders({
@@ -101,61 +110,25 @@ class FeedForwardModelConfig(ModelConfigABC):
                 'test': torch.utils.data.DataLoader(self.datasets.mytestdata)
                 })
         """
-        return namedtuple('data_loaders', loaders.keys())(**loaders)
+        self.data_loaders = namedtuple(
+            'data_loaders', loaders.keys())(**loaders)
 
-    __model_params = CmdlineOptions(
-        'model', {'name': str, # --model-name resnet18  (required option)
-                  'num_classes': int, # --model-num-classes 1000  (required option)
-                  })
-
+    @abc.abstractmethod
     def get_model(self):
         """
-        Load a pre-trained model from one of many locations:
-            torch.hub
-            or torchvision.models
-            or github:Cadene/pretrained-models.pytorch
-            or efficientnet-pytorch
+        Define your model at `self.model`.  For example:
 
-        You can then pass from command-line:
-
-            --model-name hub:pytorch/vision:deeplabv3_resnet50
-            --model-name efficientnet-b0
-
-        Or you can set in your configuration class:
-
-            class MyConfig(FeedForwardModelConfig):
-                __model_params = api.CmdlineOptions(
-                    'model', {'name': 'efficientnet-b0', 'num_classes': 4})
-
-        You can also just ignore and override this method to define your own model:
-
-            class A(FeedForwardModelConfig):
-                # unset existing CmdlineOptions if you won't used them
-                _FeedForwardModelConfig__model_params = None
-
-                def get_model(self):
-                    mymodel = torch.nn.Module()
-                    return mymodel
-
+            def get_model(self):
+                self.model = EfficientNet.from_pretrained(
+                    'efficientnet-b0', num_classes=4)
+                # or
+                self.model = torch.hub.load(github_repo, model_name)
         """
-        if self.model_name.startswith('efficientnet-b'):
-            model = EfficientNet.from_pretrained(
-                self.model_name, num_classes=self.model_num_classes)
-        elif self.model_name.startswith('hub:'):
-            github_repo, model_name = self.model_name.split(':')[1:]
-            model = torch.hub.load(github_repo, model_name, pretrained=True)
-        elif self.model_name.startswith('cadene:'):
-            model = getattr(pretrainedmodels, self.model_name.split(':', 1)[1])()
-            if self.model_num_classes != model.last_linear.out_features:
-                model.last_linear = torch.nn.Linear(
-                    model.last_linear.in_features, self.model_num_classes)
-        else:
-            raise Exception("Don't know how to load model: %s" % self.model_name)
-        return model
+        raise NotImplementedError("Your implementation here")
 
     def train(self):
-        """Train the model.  If want to override this method, it's probably
-        better to just start from scratch.
+        """Train the feedforward model.  If want to override this method, it's
+        probably better to just start from scratch.
         """
         log.info('training model')
         return train(self)
@@ -182,12 +155,14 @@ class FeedForwardModelConfig(ModelConfigABC):
         Example implementation in your class:
 
             def log_minibatch(self, batch_idx, X, y, yhat, loss):
-                # you can store cumulative data for the log_epoch function
+                # --> store cumulative data for the log_epoch function
                 self.epoch_cache.streaming_mean(
                     'train_loss', loss.item(), batch_size),
                 self.epoch_cache.streaming_mean('train_acc', .5, batch_size)
 
-                # if you want, add a row to the log that describes the minibatch
+                # --> optionally, add a row to log file for this minibatch
+                # keep in mind that non-default choice of
+                # `log_minibatch_interval` may result in not writing anything.
                 extra_log_data = {'train_loss': loss.item()}
                 super().log_minibatch(extra_log_data, batch_idx=batch_idx)
 
@@ -201,11 +176,11 @@ class FeedForwardModelConfig(ModelConfigABC):
             self.logwriter.writerow(log_data, ignore_missing=True)
 
     def log_epoch(self, extra_log_data=None):
-        """You can override this method to log something at the end of each epoch.
+        """Override this method to log something at the end of each epoch.
 
-        It is expected that `train` calls this function.
-        You can store cumulative stats needed here in self.epoch_cache,
-        (the cache is cleared at the start of each epoch by `train`).
+        It is expected that `train` calls this function.  You can store
+        cumulative stats acquired over the epoch in self.epoch_cache. This
+        cache is cleared at the start of each epoch by the `train` method.
 
         A simple example of overriding this method, where we assume the
         epoch_cache contains data you previously saved (ie see `log_minibatch`)
@@ -216,6 +191,8 @@ class FeedForwardModelConfig(ModelConfigABC):
                     'train_acc': self.epoch_cache['train_acc'].mean},
                     'val_acc': 0.51}
                 super().log_epoch(extra_log_data)
+
+        Keep in mind some configuration, `log_epoch_interval`
         """
         intv = self.log_epoch_interval
         if intv > 0 and self.cur_epoch % intv == intv - 1:
@@ -226,8 +203,8 @@ class FeedForwardModelConfig(ModelConfigABC):
             self.logwriter.writerow(log_data, ignore_missing=True)
             self.logwriter.flush()
 
-    log_epoch_interval = 1  # log perf metrics after every N epochs
-    log_minibatch_interval = 10  # log train perf after every Nth batch_idx
+    log_epoch_interval = 1  # log epoch data after every N epochs
+    log_minibatch_interval = 1  # log minibatch data after every Nth batch_idx
 
     def get_log_filepath(self):
         return f'{self.base_dir}/results/{self.run_id}/perf.csv'
@@ -277,12 +254,22 @@ class FeedForwardModelConfig(ModelConfigABC):
         return checkpoint
 
     def save_checkpoint(self, force_save=False):
-        """Override this to control logic for when checkpoints are saved.
-        Called once per epoch.  Example implementation:
+        """Control logic for when checkpoints are saved.
+        Called once per epoch.
+
+        Example implementation:
 
             def save_checkpoint(self):
                 if self.is_best_performing_epoch():
                     super().save_checkpoint(force_save=True)
+
+        Alternatively, you can just set as a class variable:
+
+            checkpoint_interval = 10
+
+        or from command line:
+
+            --checkpoint-interval 10
         """
         intv = self.checkpoint_interval
         if force_save or (intv > 0 and self.cur_epoch % intv == 0):
@@ -310,7 +297,7 @@ class FeedForwardModelConfig(ModelConfigABC):
         You can override this in your config class like:
             def run(self):
                 if self.training_mode:
-                    self.train()  # given by FeedForward
+                    self.train()  # you get this for free from the library
                 else:
                     self.test()  # you'd need to create this.
         """
@@ -330,8 +317,8 @@ class FeedForwardModelConfig(ModelConfigABC):
         if 'cuda:' in self.device:
             torch.cuda.set_device(self.device)
 
-        self.model = self.get_model()
-        self.optimizer = self.get_optimizer()
+        self.get_model()
+        self.get_optimizer()
 
         self._randomness_init = { 'seeds': np.random.randint(0, 2**32, 3) }
         self.load_checkpoint()  # may update _randomness_init
@@ -339,11 +326,12 @@ class FeedForwardModelConfig(ModelConfigABC):
         seeds = self._randomness_init['seeds']
         self._set_random_seeds(seeds)
 
-        self.lossfn = self.get_lossfn()
-        self.datasets = self.get_datasets()
-        self.data_loaders = self.get_data_loaders()
+        self.get_lossfn()
+        self.get_datasets()
+        self.get_data_loaders()
 
         self.epoch_cache = Cache()
+        # log file is only rotated and written to if writerow is called.
         self.logwriter = LogRotate(CsvLogger)(self.get_log_filepath(), self.get_log_header())
 
         # put model on gpu
@@ -394,6 +382,7 @@ class FeedForwardBinaryClassifier(FeedForwardModelConfig):
     would inherit from this class instead of FeedForward.
     """
     batch_size = int
+
     def log_minibatch(self, extra_log_data=None, *,
                       batch_idx, X, y, yhat, loss):
         num_correct = y.int().eq((yhat.view_as(y) > .5).int()).sum().item()
