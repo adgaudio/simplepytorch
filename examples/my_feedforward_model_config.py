@@ -1,5 +1,6 @@
 import torch
 import torchvision.transforms as tvt
+from efficientnet_pytorch import EfficientNet
 
 from simplepytorch import api
 from simplepytorch import datasets as D
@@ -29,17 +30,17 @@ class LetsTrainSomething(api.FeedForwardModelConfig):
     epochs = 60
     # --> define your own parameters or configuration
     my_custom_parameter = 123  # shows up on command-line
-    # --> here is a way to organize the arguments better:
+    # --> here is an optional way to organize the arguments better:
     __groupname_params = api.CmdlineOptions(
         'groupname', {'argname': 'default_value', 'someinteger': 123})
     # ... override on command-line via --groupname-argname somevalue
     # ... and access variables in code using self.groupname_argname
 
     def get_lossfn(self):
-        return torch.nn.BCEWithLogitsLoss()
+        self.lossfn = torch.nn.BCEWithLogitsLoss()
 
     def get_optimizer(self):
-        return torch.optim.Adam(self.model.parameters())
+        self.optimizer = torch.optim.Adam(self.model.parameters())
 
     def get_datasets(self):
         def transform(dct: dict):
@@ -60,19 +61,12 @@ class LetsTrainSomething(api.FeedForwardModelConfig):
             #  'test': torch.utils.data.DataLoader(self.datasets.rite_test),
         })
 
-    # get_model
-    # --> use a model from torch hub (or some other locations)
-    __model_params = api.CmdlineOptions(
-        'model', {'name': 'efficientnet-b0', 'num_classes': 1})
-    # --> or specify your own custom model
-    #  def get_model(self):
-    #      return torch.hub.load(
-    #          'mateuszbuda/brain-segmentation-pytorch', 'unet',
-    #          in_channels=3, out_channels=3,
-    #          init_features=128, pretrained=False)
-    #  _FeedForwardModelConfig__model_params = None
+    def get_model(self):
+        self.model = EfficientNet.from_pretrained(
+            'efficientnet-b0', num_classes=1)
 
     def log_minibatch(self, batch_idx, X, y, yhat, loss):
+        # just store data that will be useful for logging at end of epoch.
         batch_size = y.shape[0]
         self.epoch_cache.add(
             'train_loss', loss.item())
@@ -83,9 +77,9 @@ class LetsTrainSomething(api.FeedForwardModelConfig):
             yhat.mean().item(), batch_size)
 
     def log_epoch(self):
-        # the returned values populate a log file.
-        # you should compute your validation or test set performance here.
-        return super().log_epoch({
+        # Writes data to a log file.
+        # You can compute validation or test set performance here.
+        super().log_epoch({
             'train_loss': self.epoch_cache['train_loss'],
             'train_mse': self.epoch_cache['train_mse'].mean,
             'my measurement': self.epoch_cache[
@@ -93,6 +87,7 @@ class LetsTrainSomething(api.FeedForwardModelConfig):
         })
 
     def get_log_header(self):
+        # corresponds to values generated in log_epoch. Use it as a sanity check
         return super().get_log_header(
             ['train_loss', 'my measurement', 'train_mse'])
 
