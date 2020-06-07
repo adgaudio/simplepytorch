@@ -85,6 +85,10 @@ def main(ns):
         mode_2_plots(ns)
     else:
         raise Exception(f'not implemented mode: {ns.mode}')
+    if ns.no_plot:
+        print("type 'plt.show()' in terminal to see result")
+    else:
+        plt.show(block=False)
 
 
 def _mode_1_get_perf_data_as_df(ns):
@@ -100,7 +104,7 @@ def mode_1_plots(ns):
     timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')  # date plot was created.  nothing to do with timestamp column.
     os.makedirs(join(ns.mode1_savefig_dir, 'archive'), exist_ok=True)
     for fig, ax, col in make_plots(ns, cdfs):
-        if ns.no_savefig: continue
+        if not ns.savefig: continue
         savefig_with_symlink(
             fig,
             f'{ns.mode1_savefig_dir}/archive/{col}_{timestamp}.png',
@@ -126,7 +130,7 @@ def mode_2_plots(ns):
 
         os.makedirs(f'{ns.mode2_savefig_dir}/archive'.format(run_id=run_id), exist_ok=True)
         for fig, ax, col in make_plots(ns, cdfs):
-            if ns.no_savefig: continue
+            if not ns.savefig: continue
             # save to file
             savefig_with_symlink(
                 fig,
@@ -150,10 +154,10 @@ def bap():
       help="`--mode 1` compares each column across all run_ids. `--mode 2` visualize the history of each column of a single run id.")
     A('--mode1-savefig-dir', default='./data/plots', help=' ')
     A('--mode2-savefig-dir', default='./data/results/{run_id}/plots', help=' ')
-    A('--no-savefig', '--ns', action='store_true', help="don't save plots to file")
+    A('--savefig', action='store_true', help="save plots to file")
+    A('--no-plot', action='store_true', help="if supplied, don't show the plots")
     return par
 
 
 if __name__ == "__main__":
     main(bap().parse_args())
-    print("type 'plt.show()' in terminal to see result")
