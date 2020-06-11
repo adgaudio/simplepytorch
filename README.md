@@ -46,8 +46,8 @@ pip install --upgrade simplepytorch
 Quick Start
 ===
 
+### Preliminaries:  get a dataset and set up a project.
 
-Train (or evaluate) your model
 ```
 #
 # set up a project
@@ -65,9 +65,13 @@ ls ./myproject/data/RITE
 cd ./myproject
 # --> ask Python to register the code in ./examples as a package
 export PYTHONPATH=.:$PYTHONPATH
+```
 
+### Train the model from command-line and get results
+
+```
 #
-# train the model
+# train the model from command-line
 #
 simplepytorch ./examples/ -h
 simplepytorch ./examples/ LetsTrainSomething -h
@@ -85,6 +89,17 @@ tail -f ./data/results/experimentA/perf.csv
 simplepytorch_plot 'experiment.*' --ns
 ```
 
+### Programmatic access via the simplepytorch API:
+
+```
+import examples
+import simplepytorch.api as api
+
+cfg = api.load_model_config(examples.LetsTrainSomething, '--epochs 1')
+cfg.train()
+```
+
+### Developing your own pytorch code
 
 Check the examples directory for a simple getting started template.  You
 can train a model to perform vessel segmentation on the RITE dataset in
@@ -111,10 +126,20 @@ will support you to the extent that I can.
 
 **Datasets:**
 
-To use the pre-defined dataset classes, you must download the data and
-unzip it yourself.  Consult Dataset class docstring if necessary.
+The library provides PyTorch Dataset implementations for datasets 
+without an already existing PyTorch implementation.
 
-For example, some datasets I use have the following structure:
+To use the pre-defined dataset classes, you must download the data and
+unzip it yourself.  Consult Dataset class docstring for usage details.
+
+```
+import simplepytorch.datasets as D
+
+dset = D.RITE(use_train_set=True)
+dset[0]
+```
+
+For example, some downloaded datasets I use have the following structure:
 
 ```
  $ ls data/{arsn_qualdr,eyepacs,messidor,IDRiD_segmentation,RITE}

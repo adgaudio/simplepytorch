@@ -6,6 +6,7 @@ import configargparse as ap
 import importlib
 from os.path import basename, dirname, isdir, join
 import logging
+import shlex
 import sys
 
 
@@ -13,9 +14,30 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
 
-def load_model_config(ns: ap.Namespace = None):
-    if ns is None:
-        ns = build_arg_parser().parse_args()
+def load_model_config(kls=None, optional_cmdline_string: str=None):
+    """Programmatically initialize a model config class with its defaults
+
+    :kls: is your subclass implementation of a FeedForwardModelConfig.
+    :optional_cmdline_string:  Arguments you would pass at commandline, if any.
+    :returns: kls() initialized with default parameters.
+
+    Example:
+        # programmatically initialize your model config class
+        from examples import LetsTrainSomething  # your class here
+        load_model_config(LetsTrainSomething, '--epochs 3')
+
+        # or 
+        load_model_config(LetsTrainSomething)
+    """
+    if kls is None:
+        if optional_cmdline_string:
+            ns = build_arg_parser().parse_args(
+                shlex.split(optional_cmdline_string))
+        else:
+            ns = build_arg_parser().parse_args()
+    else:
+        fp = sys.modules[kls.__module__].__file__
+        ns = build_arg_parser(fp).parse_args([kls.__name__])
     # merge cmdline config with defaults
     config_overrides = ns.__dict__
     config = config_overrides.pop('modelconfig_class')(config_overrides)
@@ -201,36 +223,45 @@ def dynamically_import_model_configs(fp):
         _name = basename(fp)
         fp = join(fp, '__init__.py')
     else:
-        _name = basename(fp)[-3:]
+        _name = basename(fp)[:-3]
     _fp = fp
     print(fp, _name)
     spec = importlib.util.spec_from_file_location(
-        _name, fp, submodule_search_locations=['.'] + [_fp:=dirname(_fp) for _ in range(_fp.count('/'))])
+        _name, fp, submodule_search_locations=['.'] +
+        [_fp:=dirname(_fp) for _ in range(_fp.count('/'))])
         #  basename(fp)[:-3], fp, submodule_search_locations=['.'] + [_fp:=dirname(_fp) for _ in range(_fp.count('/'))])
     if spec is None:
         print(f"Unrecognized filepath: {fp}")
         sys.exit(1)
     MC = importlib.util.module_from_spec(spec)
-    #  sys.modules[spec.name] = MC
+    sys.modules[spec.name] = MC
     spec.loader.exec_module(MC)
     return MC
 
 
-def build_arg_parser():
-    """Returns a parser to handle command-line arguments"""
+def build_arg_parser(fp=None):
+    """Returns a parser to handle command-line arguments
+
+    `fp` - The filepath to the python file containing Model Configs.
+    The parser finds cmdline options by analyzing the file.
+    By default, fp is assumed to be passed in as the first argument on cmdline.
+    It is useful to pass `fp` yourself if you are programmatically
+    initializing a class and with to ignore command-line arguments.
+    """
     p = ap.ArgumentParser(
         formatter_class=ap.ArgumentDefaultsHelpFormatter)
     sp = p.add_subparsers(help='The model configuration to work with')
     sp.required = True
     sp.dest = 'model_configuration_name'
 
-    try:
-        fp = sys.argv.pop(1)
-        #  kls = sys.argv[2]
-        assert fp not in ['-h', '--help']
-    except IndexError:
-        print("usage:  <filepath> \nplease pass filepath to Python module containing your model config class")
-        sys.exit(1)
+    if fp is None:
+        try:
+            fp = sys.argv.pop(1)
+            #  kls = sys.argv[2]
+            assert fp not in ['-h', '--help']
+        except IndexError:
+            print("usage:  <filepath> \nplease pass filepath to Python module containing your model config class")
+            sys.exit(1)
     MC = dynamically_import_model_configs(fp)
 
     for kls_name in dir(MC):
