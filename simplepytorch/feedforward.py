@@ -25,6 +25,7 @@ def train_one_epoch(config):
     config.model.train()
     for batch_idx, (X, y) in enumerate(config.data_loaders.train):
         X, y = X.to(config.device), y.to(config.device)
+        X, y = config.preprocess_hook(X, y)
         config.optimizer.zero_grad()
         yhat = config.model(X)
         loss = config.lossfn(yhat, y)
@@ -138,6 +139,18 @@ class FeedForwardModelConfig(ModelConfigABC):
         log_minibatch.  Subclasses can override this to define custom behavior.
         """
         return train_one_epoch(self)
+
+    def preprocess_hook(self, X, y):
+        """
+        Subclasses can override this to preprocess the minibatch data before
+        using for training.   Expected that this is called from
+        train_one_epoch.
+
+        Example:
+            def preprocess_hook(self, X, y):
+                return X, y[:, 0]
+        """
+        return X, y
 
     def eval_early_stopping(self):
         """Subclasses can override this to implement early stopping behavior.
