@@ -76,7 +76,9 @@ export PYTHONPATH=.:$PYTHONPATH
 simplepytorch ./examples/ -h
 simplepytorch ./examples/ LetsTrainSomething -h
 simplepytorch ./examples/ LetsTrainSomething --run-id experimentA --epochs 3
+# alternative command-line ways to start code
 run_id=experimentB epochs=3 simplepytorch ./examples/ LetsTrainSomething
+simplepytorch ./examples/my_feedforward_model_config.py LetsTrainSomething
 
 # --> debug your model with IPython
 simplepytorch_debug ./examples/ LetsTrainSomething --run-id experimentA --epochs a
