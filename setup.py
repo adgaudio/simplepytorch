@@ -11,7 +11,7 @@ README = (HERE / "README.md").read_text()
 
 setup(
     name='simplepytorch',
-    version='0.0.5',
+    version='0.1.0',
     description='Setup and train deep nets with PyTorch. Opinionated and Simple.',
     long_description=README,
     long_description_content_type="text/markdown",
