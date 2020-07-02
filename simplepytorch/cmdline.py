@@ -37,7 +37,8 @@ def load_model_config(kls=None, optional_cmdline_string: str=None):
             ns = build_arg_parser().parse_args()
     else:
         fp = sys.modules[kls.__module__].__file__
-        ns = build_arg_parser(fp).parse_args([kls.__name__])
+        ns = build_arg_parser(fp).parse_args(
+            [kls.__name__] + shlex.split(optional_cmdline_string or ''))
     # merge cmdline config with defaults
     config_overrides = ns.__dict__
     config = config_overrides.pop('modelconfig_class')(config_overrides)
@@ -124,7 +125,7 @@ def _add_subparser_arg(subparser, k, v, choices=None):
             g.add_argument(
                 '--%s' % ku, nargs=len(v), default=v, help=' ', env_var=k,
                 type=lambda inpt: type(accepted_simple_types)(
-                    [typ(x) for typ, x in zip(accepted_simple_types, inpt)]),
+                    [typ(x) for typ, x in zip(accepted_simple_types, inpt)])[0],
                 choices=choices)
         else:
             g.add_argument('--%s' % ku, nargs=len(v), type=v[0], env_var=k, choices=choices)
