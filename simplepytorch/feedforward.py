@@ -29,6 +29,7 @@ def train_one_epoch(config):
         config.optimizer.zero_grad()
         yhat = config.model(X)
         loss = config.lossfn(yhat, y)
+        assert not torch.isnan(loss)
         loss.backward()
         config.optimizer.step()
         with torch.no_grad():
