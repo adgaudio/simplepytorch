@@ -8,6 +8,7 @@ from .pickled_dicts import PickledDicts
 # retinal fundus images
 from .messidor import Messidor
 from .eyepacs import Eyepacs
+from .drive import DRIVE
 from .rite import RITE
 from .idrid import IDRiD_Segmentation
 # --> private dataset
