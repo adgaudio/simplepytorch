@@ -4,18 +4,23 @@ import torch
 def create_confusion_matrix(y, yhat, normalize_y=True):
     """Confusion Matrix enables performance evaluation of a classifier model.
 
+    Outputs same result as sklearn.metrics.confusion_matrix, but input is not a
+    1D vector.
+
     Each row corresponds to a true class and represents the
     distribution of predicted values when that class was the correct one.
 
     Let `n` represent the number of (minibatch) samples and `m` represent the
     number of classes.  Basically, compute the outer product `y y_{hat}^T` for
-    each of the `n` samples and sum the resulting matrices.
+    each of the `n` samples and sum the resulting matrices.  In other words,
+    each row is a weighted sum of the yhat row vector with the scalar weight
+    y_i (yhat * y_i).
 
-    This is a bit more general than the typical description of a confusion
-    matrix, in that the ground truth `y` values can be fractions, multi-label
-    and not necessarily sum to 1.  The trade-off is that y and yhat are never
-    1-dimensional (e.g. for binary classification, both y and yhat have two
-    columns).
+    This function generalizes a confusion matrix, because the ground truth `y`
+    values are free to be fractions, multi-label and do not need to sum to 1.
+    The trade-off of this generalized design is that y and yhat are never
+    1-D vectors, like they are in the sklearn method (e.g. for binary
+    classification, both y and yhat have two columns).
 
     :y:  (n,m) matrix of true values (e.g. if multi-class, each row is one-hot).
         In general, it doesn't make sense if y has negative values.
