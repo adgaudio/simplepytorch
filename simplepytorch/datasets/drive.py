@@ -16,17 +16,22 @@ def crop_background(img_and_labels_and_mask: np.ndarray):
     _tmp2 = (mask.sum(0)>0)
     crop_slice = np.s_[
         _tmp1.argmax():_tmp1[::-1].argmax()*-1,
-        _tmp2.argmax():_tmp2[::-1].argmax()*-1, :-1]
+        _tmp2.argmax():_tmp2[::-1].argmax()*-1, :]
     return img_and_labels_and_mask[crop_slice]
 
 
 def to_tensors(device):
-    def _to_tensors(img_and_labels: np.ndarray):
-        img_and_labels = img_and_labels.transpose(2,0,1)
+    """
+    Input a tensor of shape (h,w,3+n)
+    Output a tuple of tensors ( (h,w,3), (h,w,1),  ..., (h,w,1) )
+    """
+    def _to_tensors(img_labels_mask: np.ndarray):
+        img_labels_mask = img_labels_mask.transpose(2,0,1)
 
-        rv = [torch.tensor(img_and_labels[:3], dtype=torch.float, device=device)]
-        for i in range(3, img_and_labels.shape[0]):
-            rv.append(torch.tensor(img_and_labels[i], dtype=torch.uint8, device=device))
+        img = torch.tensor(img_labels_mask[:3], dtype=torch.float, device=device)
+        rv = [img]
+        for i in range(3, img_labels_mask.shape[0]):
+            rv.append(torch.tensor(img_labels_mask[i], dtype=torch.uint8, device=device))
         return rv
     return _to_tensors
 
@@ -45,9 +50,7 @@ class DRIVE:
                 DRIVE.to_tensors('cuda:0'),
                 ])
         )
-        >>> sample = drive[0]
-        >>> img, labels_1st_manual, labels_2nd_manual, mask = \
-                sample[:3], sample[3], sample[4], sample[5]
+        >>> img, labels_1st_manual, mask = drive[0]
 
     getitem_transform formats the data into the form you want.
       If getitem_transform=None, it outputs a dictionary.
@@ -140,7 +143,7 @@ class DRIVE:
         return_numpy_array).  Converts a numpy array to tensor and puts
         channels in first dimension.
 
-        Returns (img, labels_1st_manual, [labels_2nd_manual])
+        Returns (img, labels_1st_manual, [labels_2nd_manual], mask)
         """
         return to_tensors(device)
 
@@ -149,5 +152,5 @@ if __name__ == "__main__":
     # ipython -im simplepytorch.datasets.drive
     dset = DRIVE(use_train_set=True)
 
-    img, labels_1st_manual = dset[0]
-    print(img.shape, labels_1st_manual.shape)
+    img, labels_1st_manual, mask = dset[0]
+    print(img.shape, labels_1st_manual.shape, mask.shape)
