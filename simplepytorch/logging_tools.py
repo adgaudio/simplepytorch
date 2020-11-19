@@ -40,42 +40,6 @@ class _LogRotate_LazyPassthrough:
         return getattr(
             ga(self,'_initialized_logger_instance'), attr_name)
 
-class LogRotate:
-    """Store a history of any data logger to avoid overwriting old results
-
-    log = LogRotate(CsvLogger)(...)
-
-    If the log filepath is "./a/b/c.csv" then it will get renamed to
-    ./a/b/log/{utc_timestamp}_c.csv and a symlink to './a/b/c.csv' will point
-    to the file.
-
-    :lazy_init:  If True, don't perform log rotate or initialize the logger
-    class until an attribute or method is invoked from it.  This avoids writing
-    to disk or doing rotation until the moment the file is written to.
-    Even if lazy loading causes the log file to be created several minutes late,
-    the start time used to define the log filename will be correct.
-    """
-    def __init__(self, data_logger_kls, lazy_init=True):
-        self.kls = data_logger_kls
-        self.lazy_init = lazy_init
-
-    def __call__(self, *args, **kwargs):
-        utcnow = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')
-        if self.lazy_init:
-            return _LogRotate_LazyPassthrough(
-                self.kls, self.init_data_logger, utcnow, *args, **kwargs)
-        else:
-            return self.init_data_logger(utcnow, log_fp, *args, **kwargs)
-
-    def init_data_logger(self, utcnow, log_fp, *args, **kwargs):
-        replacement_log_fp = f'{osp.dirname(log_fp)}/log/{utcnow}_{osp.basename(log_fp)}'
-
-        if osp.islink(log_fp):
-            os.remove(log_fp)
-        rv = self.kls(replacement_log_fp, *args, **kwargs)
-        os.symlink(f'log/{osp.basename(replacement_log_fp)}', log_fp)
-        return rv
-
 
 class DataLogger(abc.ABC):
     """
@@ -151,6 +115,43 @@ class DataLogger(abc.ABC):
         values to be empty.  if raise_if_extra_keys, do not allow unrecognized keys in the dict"""
         rowdict = self._clean_rowdict(rowdict, ignore_missing, raise_if_extra_keys)
         self._write_to_file_handler(rowdict)
+
+
+class LogRotate:
+    """Store a history of any data logger to avoid overwriting old results
+
+    log = LogRotate(CsvLogger)(...)
+
+    If the log filepath is "./a/b/c.csv" then it will get renamed to
+    ./a/b/log/{utc_timestamp}_c.csv and a symlink to './a/b/c.csv' will point
+    to the file.
+
+    :lazy_init:  If True, don't perform log rotate or initialize the logger
+    class until an attribute or method is invoked from it.  This avoids writing
+    to disk or doing rotation until the moment the file is written to.
+    Even if lazy loading causes the log file to be created several minutes late,
+    the start time used to define the log filename will be correct.
+    """
+    def __init__(self, data_logger_kls, lazy_init=True):
+        self.kls = data_logger_kls
+        self.lazy_init = lazy_init
+
+    def __call__(self, *args, **kwargs):
+        utcnow = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')
+        if self.lazy_init:
+            return _LogRotate_LazyPassthrough(
+                self.kls, self.init_data_logger, utcnow, *args, **kwargs)
+        else:
+            return self.init_data_logger(utcnow, log_fp, *args, **kwargs)
+
+    def init_data_logger(self, utcnow, log_fp, *args, **kwargs):
+        replacement_log_fp = f'{osp.dirname(log_fp)}/log/{utcnow}_{osp.basename(log_fp)}'
+
+        if osp.islink(log_fp):
+            os.remove(log_fp)
+        rv = self.kls(replacement_log_fp, *args, **kwargs)
+        os.symlink(f'log/{osp.basename(replacement_log_fp)}', log_fp)
+        return rv
 
 
 class CsvLogger(DataLogger):
@@ -229,6 +230,14 @@ def unpickler(fp):
         while file_handler.peek(1):
             yield pickle.load(file_handler)
 
+
+class DoNothingLogger(DataLogger):
+    def __init__(self, *args, **kwargs): pass
+    def _init_file_handler(self, *args, **kwargs): pass
+    def _write_to_file_handler(self, *args, **kwargs): pass
+    def flush(self): pass 
+    def close(self): pass 
+    def writerow(self, *args, **kwargs): pass
 
 if __name__ == "__main__":
 
