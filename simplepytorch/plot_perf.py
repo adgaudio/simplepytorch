@@ -183,7 +183,7 @@ def mode_3_plots(ns):
 
     plot_cols = [col for col in cdfs.columns if re.search(ns.col_regex, col)]
     for col in plot_cols:
-        fig, ax = plt.subplots(1,1)
+        fig, ax = plt.subplots(1,1, figsize=(12,10))
         sns.lineplot(x='epoch', y=col, hue='run_id', ax=ax, data=cdfs)
         ax.set_title(col)
         if not ns.savefig: continue
