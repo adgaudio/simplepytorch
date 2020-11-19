@@ -1,38 +1,7 @@
 # a library of helper functions for scripting
 # shell scripts should source this library.
 
-
-function run_parselog_py() {
-  overwrite_plots="$1"
-  fp_in="$2"  # a file in a subdirectory like run_id/data.log
-  out_dir="$(dirname "$fp_in")"  # where to save plots
-  if [ "${overwrite_plots:-false}" = false -a -e "$out_dir" ] ; then
-    echo skipping $fp_in
-    exit
-  fi
-  out="$(mktemp -p ./data/tmp/)"
-  exec 3>"$out"
-  exec 4<$out
-  rm "$out"
-  RED='\033[0;31m'
-  GREEN='\033[0;32m'
-  YELLOW='\033[0;33m'
-  CYAN='\033[0;34m'
-  NC='\033[0m' # No Color
-  cmd="python ./bin/parselog.py ""$out_dir"" ""$fp_in"
-  echo -e "$CYAN $cmd $NC"
-  $cmd >&3 2>&3
-  if [ $? -ne 0 ] ; then
-    echo -e "$RED failed_to_parse $NC $fp_in"
-    echo -e "$YELLOW "
-    cat <&4
-  else
-    echo -e "$GREEN successfully_parsed $NC $fp_in"
-    grep Traceback $fp_in >/dev/null && echo -e "$YELLOW    WARN: but log contains a Traceback $NC"
-    echo "    output_dir $out_dir"
-  fi
-}
-export -f run_parselog_py
+# the highest level commands in here are:  run_gpus round_robbin_gpu run fork
 
 
 # Helper function to ensure only one instance of a job runs at a time.
@@ -49,7 +18,10 @@ function use_lockfile() {
     exit
   fi
   if [ "$lockfile_runonce" = "yes" -a -e "$lockfile_success_fp" ] ; then
-    echo "job previously completed!"
+
+    local YELLOW='\033[0;33m'
+    local NC='\033[0m' # No Color
+    echo -e "$YELLOW job previously completed!$NC  $lockfile_success_fp"
     exit
   fi
   mkdir -p "$(dirname "$lockfile_fp")"
@@ -76,12 +48,15 @@ function use_lockfile() {
     rm $lockfile_fp
   }
   function trap_success() {
+    local GREEN='\033[0;32m'
+    local NC='\033[0m' # No Color
     if [ ! -e "$lockfile_failed_fp" ] ; then
-      echo job successfully completed
       if [ "$lockfile_runonce" = "yes" ] ; then
-        echo please rm this file to re-run job again: ${lockfile_success_fp}
+        echo -e "$GREEN $run_id :  success! \n$NC    ...to re-run job, rm this file: ${lockfile_success_fp}"
         date > $lockfile_success_fp
         hostname >> $lockfile_success_fp
+      else
+        echo success $run_id
       fi
     fi
     remove_lockfile
@@ -89,7 +64,10 @@ function use_lockfile() {
   }
   function trap_err() {
     rv=$?
-    echo "ERROR code=$rv" >&2
+    local RED='\033[0;31m'
+    local NC='\033[0m' # No Color
+
+    echo -e "$RED $run_id :  ERROR code: $rv $NC" >&2
     date > $lockfile_failed_fp
     exit $rv
   }
@@ -148,7 +126,7 @@ function run_cmd_and_log() {
   run_id="$1"
   shift
   cmd="$@"
-  lockfile_path=./data/results/$run_id/lock
+  lockfile_path=./results/$run_id/lock
   lockfile_runonce=yes
 
   (
@@ -156,14 +134,15 @@ function run_cmd_and_log() {
   set -u
   set -o pipefail
   use_lockfile ${lockfile_path} ${lockfile_runonce}
-  log_fp="./data/results/$run_id/`date +%Y%m%dT%H%M%S`.log"
+  log_fp="./results/$run_id/`date +%Y%m%dT%H%M%S`.log"
   mkdir -p "$(dirname "$(realpath -m "$log_fp")")"
-  run_cmd "$run_id" "$cmd" 2>&1 | tee $log_fp
+  run_cmd "$run_id" "$cmd" 2>&1 > $log_fp
   )
 }
 export -f run_cmd_and_log
 
 
+# run command and log stdout/stderr
 function run() {
   local ri="$1"
   shift
@@ -173,6 +152,10 @@ function run() {
 export -f run
 
 
+# run jobs with logging of stdout.  useful in conjunction with wait.
+#  > fork experiment_name1  some_command
+#  > fork experiment_name2  another_command
+#  > wait
 function fork() {
   (run $@) &
 }
@@ -181,9 +164,16 @@ export -f fork
 
 
 function round_robbin_gpu() {
-  # you probably want to use `run_gpus` instead.
+  # distribute `num_tasks` tasks on each of the (locally) available gpus
+
+  # in round robbin fashion.  This implementation is synchronized; a set of
+  # `num_tasks` tasks must complete before another set of `num_tasks` tasks
+  # starts.
+
+  # NOTE: use `run_gpus` instead if you want one task per gpu, as it doesn't block.
+
   local num_gpus=$(nvidia-smi pmon -c 1|grep -v \# | awk '{print $1}' | sort -u | wc -l)
-  local num_tasks=${1:-$num_gpus}
+  local num_tasks=${1:-$num_gpus}  # how many concurrent tasks per gpu
   local idx=0
 
   while read -r line0 ; do
@@ -203,7 +193,10 @@ export -f round_robbin_gpu
 
 
 function run_gpus() {
+  # Run a set of tasks, one task per gpu, by populating and consuming from a Redis queue.
+
   # use redis database as a queuing mechanism.  you can specify how to connect to redis with RUN_GPUS_REDIS_CLI 
+  local num_tasks_per_gpu="${1:-1}"
   local redis="${RUN_GPUS_REDIS_CLI:-redis-cli -n 1}"
   local num_gpus=$(nvidia-smi pmon -c 1|grep -v \# | awk '{print $1}' | sort -u | wc -l)
   local Q="`mktemp -u -p run_gpus`"
@@ -219,8 +212,9 @@ function run_gpus() {
   $redis EXPIRE "$Q" 1209600 >/dev/null # expire queue after two weeks in case trap fails. should make all the rpush events and this expire atomic, but oh well.
   # --> start the consumers
   for gpu_idx in `nvidia-smi pmon -c 1|grep -v \# | awk '{print $1}' | sort -u` ; do
-    consumergpu_redis $gpu_idx "$redis" "$Q" $maxjobs &
-  done
+    for i in $(seq $num_tasks_per_gpu) ; do
+      consumergpu_redis $gpu_idx "$redis" "$Q" $maxjobs &
+  done ; done
   wait
   $redis DEL "$Q" "$Q/numstarted" >/dev/null
 }
