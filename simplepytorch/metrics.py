@@ -1,11 +1,13 @@
 import torch
 
 
-def confusion_matrix_1D_input(y: torch.tensor, yhat: torch.Tensor, num_classes=None) -> torch.Tensor:
+def confusion_matrix_1D_input(y: torch.LongTensor, yhat: torch.LongTensor, num_classes=None) -> torch.Tensor:
+    assert isinstance(y, (torch.LongTensor, torch.cuda.LongTensor))
+    assert isinstance(yhat, (torch.LongTensor, torch.cuda.LongTensor))
     if num_classes is None:
         num_classes = y.max()
     return torch.sparse_coo_tensor(
-        torch.stack([y.round().long(), yhat.round().long()]),
+        torch.stack([y, yhat]),
         torch.ones(yhat.numel(), device=y.device),
         size=(num_classes, num_classes)).to_dense()
 
@@ -69,26 +71,25 @@ def confusion_matrix(y: torch.Tensor, yhat: torch.Tensor, num_classes:int,
         positive or predicted negative
 
     Regarding the inputs:
-        :y: ground truth tensor
-        :yhat: prediction tensor
+        :y: ground truth tensor, shape is 1D or 2D.
+        :yhat: prediction tensor, shape is 1D or 2D.
 
         If 1-D input tensor:
-            :num_classes: Identifies how many classes in the confusion matrix,
-            useful when `y` does not include all classes to guarantee output shape.
+            - Standard style in sklearn, for multi-class setting.
+            - Must be a LongTensor containing the class index.
 
-            - Each scalar value of the 1D vectors identifies a class in the
-            confusion matrix by its row index or column index, for `y` and
-            `yhat` respectively.
             - The 1-D inputs force multi-class (one-hot) semantics, and is more
             or less the canonical setting.
+            - Each value of the 1D vectors identifies a class in the
+            confusion matrix by its row index or column index, for `y` and
+            `yhat` respectively.
 
         If 2-D input tensor:
-
-            Passing 2-D (n,c) inputs is better suited for multi-label
+            - Must be a FloatTensor
+            - Passing 2-D (n,c) inputs is better suited for multi-label
             data or uncertain ground truth labels or weights over samples.
               - `n` is the number of (minibatch) samples
               - `c` is the number of classes
-            - All 2-D inputs are converted to float.
             - If only one input is 2-D, the other is converted to 2-D.
 
         - Try to gracefully handle some funky shapes, such as (n,c,1,1) or (n,1)
@@ -119,7 +120,8 @@ def confusion_matrix(y: torch.Tensor, yhat: torch.Tensor, num_classes:int,
 
 
 def _confusion_matrix_convert_2d_shape(arr, num_classes):
-    arr = torch.eye(num_classes, dtype=arr.dtype, device=arr.device)[arr.long()]
+    assert isinstance(arr, (torch.LongTensor, torch.cuda.LongTensor))
+    arr = torch.eye(num_classes, dtype=arr.dtype, device=arr.device)[arr]
     assert arr.shape[1] == num_classes, 'sanity check'
     assert arr.ndim == 2, 'sanity check'
     return arr
