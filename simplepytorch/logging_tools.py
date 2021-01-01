@@ -137,7 +137,7 @@ class LogRotate:
         self.lazy_init = lazy_init
 
     def __call__(self, *args, **kwargs):
-        utcnow = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')
+        utcnow = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S.%f')
         if self.lazy_init:
             return _LogRotate_LazyPassthrough(
                 self.kls, self.init_data_logger, utcnow, *args, **kwargs)
