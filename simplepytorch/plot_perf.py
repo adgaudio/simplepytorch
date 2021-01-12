@@ -10,6 +10,7 @@ alias sdp='ipython -i -m simplepytorch.perf_plot -- '
 """
 import argparse as ap
 import datetime as dt
+import IPython
 import sys
 import re
 import glob
@@ -58,6 +59,26 @@ def _mode1_get_frames(ns):
         yield from (x for x in gen if not x[-1].empty)
 
 
+def _get_all_data(ns):
+    cdfs_data = {}
+    timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')  # date plot was created.  nothing to do with timestamp column.
+    for run_id in get_run_ids(ns):
+        dirp = f'{ns.data_dir}/{run_id}/log'
+        if not os.path.exists(dirp):
+            print('skip', run_id, 'contains no log data')
+            continue
+
+        cdfs = pd.concat({
+            (run_id, fname): load_df_from_fp(join(dirp, fname), ns)
+            for fname in os.listdir(dirp)
+            if re.search(f'{ns.data_fp_regex}', fname)},
+            sort=False, names=['run_id', 'filename']
+        )
+        cdfs_data[run_id] = cdfs
+    cdfs = pd.concat(cdfs_data.values())
+    return cdfs
+
+
 def make_plots(ns, cdfs):
     plot_cols = [col for col in cdfs.columns if re.search(ns.col_regex, col)]
     for col in plot_cols:
@@ -86,18 +107,34 @@ def savefig_with_symlink(fig, fp, symlink_fp):
 def main(ns):
     print(ns)
     # mode 1: compare each column across all files
-    if ns.mode == 1:
-        mode_1_plots(ns)
+    if ns.mode == 0:
+        cdfs = mode_0(ns)
+    elif ns.mode == 1:
+        cdfs = mode_1_plots(ns)
     elif ns.mode == 2:
-        mode_2_plots(ns)
+        cdfs = mode_2_plots(ns)
     elif ns.mode == 3:
-        mode_3_plots(ns)
+        cdfs = mode_3_plots(ns)
     else:
         raise Exception(f'not implemented mode: {ns.mode}')
     if ns.no_plot:
-        print("type 'plt.show()' in terminal to see result")
+        print("type 'plt.show()' in IPython terminal to see result")
+        ipython_start_cmd = []
     else:
-        plt.show(block=False)
+        ipython_start_cmd = ['-c', 'plt.ion() ; plt.show(block=False)', '-i']
+        #  plt.show(block=False)
+    if ns.shell:
+        dct = dict(locals())
+        dct.update(globals())
+        print("\n==== Global Namespace: ====\n{1}\n\n==== Local Namespace: ====\n{0}\n".format(
+            '\n'.join([x for x in locals().keys() if not x.startswith('__')]),
+            ', '.join(globals().keys())))
+        IPython.start_ipython(['--no-banner'] + ipython_start_cmd, user_ns=dct)
+
+
+def mode_0(ns):
+    cdfs = _get_all_data(ns)
+    return cdfs
 
 
 def _mode_1_get_perf_data_as_df(ns):
@@ -111,7 +148,6 @@ def mode_1_plots(ns):
     One plot for each metric, comparing the most recent result of each experiment
     """
     cdfs = _mode_1_get_perf_data_as_df(ns).reset_index('filename', drop=True)
-    globals().update({'cdfs_mode1': cdfs})
 
     timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')  # date plot was created.  nothing to do with timestamp column.
     os.makedirs(join(ns.mode1_savefig_dir, 'archive'), exist_ok=True)
@@ -121,6 +157,7 @@ def mode_1_plots(ns):
             fig,
             f'{ns.mode1_savefig_dir}/archive/{col}_{timestamp}.png',
             f'{ns.mode1_savefig_dir}/{col}_latest.png')
+    return cdfs
 
 
 def mode_2_plots(ns):
@@ -153,28 +190,13 @@ def mode_2_plots(ns):
                 fig,
                 f'{ns.mode2_savefig_dir}/archive/{col}_{timestamp}.png'.format(run_id=run_id),
                 f'{ns.mode2_savefig_dir}/{col}_latest.png'.format(run_id=run_id))
-    globals().update({'cdfs_mode2': cdfs_mode2})
+    return cdfs_mode_2
 
 
 def mode_3_plots(ns):
     """Compare across experiments, considering their history of runs.
     Basically combines mode 1 and mode 2. """
-    cdfs_mode3 = {}
-    timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')  # date plot was created.  nothing to do with timestamp column.
-    for run_id in get_run_ids(ns):
-        dirp = f'{ns.data_dir}/{run_id}/log'
-        if not os.path.exists(dirp):
-            print('skip', run_id, 'contains no log data')
-            continue
-
-        cdfs = pd.concat({
-            (run_id, fname): load_df_from_fp(join(dirp, fname), ns)
-            for fname in os.listdir(dirp)
-            if re.search(f'{ns.data_fp_regex}', fname)},
-            sort=False, names=['run_id', 'filename']
-        )
-        cdfs_mode3[run_id] = cdfs
-    cdfs = pd.concat(cdfs_mode3.values())
+    cdfs = _get_all_data(ns)
 
     #  cdfs.groupby(['run_id', 'epoch']).agg(ns.mode3_agg_method)
     cdfs_unmodified = cdfs.copy()
@@ -184,14 +206,17 @@ def mode_3_plots(ns):
     plot_cols = [col for col in cdfs.columns if re.search(ns.col_regex, col)]
     for col in plot_cols:
         fig, ax = plt.subplots(1,1, figsize=(12,10))
-        sns.lineplot(x='epoch', y=col, hue='run_id', ax=ax, data=cdfs)
+        kws = dict(x='epoch', y=col, hue='run_id', ax=ax, data=cdfs)
+        sns.lineplot(**kws, ci=ns.mode3_ci, lw=2 if ns.mode3_ci == 0 else 1, )
+        if ns.mode3_ci == 0:
+            sns.lineplot(**kws, units="filename", estimator=None, lw=1, alpha=.5, legend=False)
         ax.set_title(col)
         if not ns.savefig: continue
         savefig_with_symlink(
             fig,
             f'{ns.mode3_savefig_dir}/archive/{col}_mode3_{timestamp}.png',
             f'{ns.mode3_savefig_dir}/{col}_mode3_latest.png')
-    globals().update({'cdfs_mode3': cdfs_unmodified})
+    return cdfs_unmodified
 
 
 def bap():
@@ -206,17 +231,20 @@ def bap():
     A('--hdf-table-name', help='required if searching .h5 files')
     A('-c', '--col-regex', default='^(?!epoch|batch_idx|timestamp)', help='plot only columns matching regex.  By default, plot all except epoch and batch_idx.')
     A('--index-col', default='epoch', help=' ')
-    A('--mode', default=1, type=int, choices=[1,2,3], help=dedent('''\
-        `--mode 1` compare across experiments, with one plot per column (i.e. performance metric)
+    A('--mode', default=1, type=int, choices=[0,1,2,3], help=dedent('''\
+        `--mode 0` Don't plot anything, just collect data and drop into a shell.
+        `--mode 1` Compare across experiments, with one plot per column (i.e. performance metric)
         `--mode 2` Within one experiment and column, visualize the history of all runs.
         `--mode 3` combine 1 and 2.  compare across run_ids, with
                    confidence interval to consider history of runs for each run_id.'''))
     A('--mode1-savefig-dir', default='./results/plots/mode1', help=' ')
     A('--mode2-savefig-dir', default='./results/plots/mode2', help=' ')
     A('--mode3-savefig-dir', default='./results/plots/mode3', help=' ')
+    A('--mode3-ci', default=95, type=float, help='confidence interval for error bars.  If 0, also shows all lines individually')
     A('--best-effort', action='store_true', help=" Try to load a csv file, but don't raise error if cannot read a file.")
     A('--savefig', action='store_true', help="save plots to file")
     A('--no-plot', action='store_true', help="if supplied, don't show the plots")
+    A('--no-shell', action='store_false', dest='shell', help='do not drop into an IPython shell when finished')
     return par
 
 
