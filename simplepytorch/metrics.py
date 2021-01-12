@@ -1,9 +1,10 @@
 import torch
+from typing import Union
 
 
 def confusion_matrix_1D_input(y: torch.LongTensor, yhat: torch.LongTensor, num_classes=None) -> torch.Tensor:
-    assert isinstance(y, (torch.LongTensor, torch.cuda.LongTensor))
-    assert isinstance(yhat, (torch.LongTensor, torch.cuda.LongTensor))
+    assert not isinstance(y, (torch.FloatTensor, torch.cuda.FloatTensor)), 'y or yhat cannot have float values'
+    assert not isinstance(yhat, (torch.FloatTensor, torch.cuda.FloatTensor)), 'y or yhat cannot have float values'
     if num_classes is None:
         num_classes = y.max()
     return torch.sparse_coo_tensor(
@@ -11,10 +12,43 @@ def confusion_matrix_1D_input(y: torch.LongTensor, yhat: torch.LongTensor, num_c
         torch.ones(yhat.numel(), device=y.device),
         size=(num_classes, num_classes)).to_dense()
 
+def confusion_matrix_binary_soft_assignment(
+        y: Union[torch.FloatTensor,torch.LongTensor],
+        yhat: Union[torch.FloatTensor,torch.LongTensor]):
+    """
+    Create a binary confusion matrix give 1d inputs, where the inputs are
+    assumed to be probabilities of the (positive) class with index value 1.
+
+    Performs a soft assignment of the confusion matrix.  It is useful for
+    binary classification with label noise, or less commonly when the predicted
+    probabilities are considered as soft assignment.  Here's an example input
+    and output:
+
+        >>> y = [.7]
+        >>> yhat = [.2]
+        >>> confusion_matrix(y, yhat, 2)
+            [[(1-.7) * (1-.2) , (1-.7) * .2]
+             [(.7    * (1-.2) , .7     * .2]]
+
+    """
+
+    # special case of 1D probability vectors
+    assert (y.max() <= 1).all() and (y.min() >= 0).all()
+    assert (yhat.max() <= 1).all() and (yhat.min() >= 0).all()
+
+    yhat = torch.stack([1-yhat, yhat]).T.float()
+    y = torch.stack([1-y, y]).T.float()
+    return confusion_matrix_2D_input(y=y, yhat=yhat)
+
 
 def confusion_matrix_2D_input(y: torch.Tensor, yhat: torch.Tensor, normalize_y=False) -> torch.Tensor:
     """
-    Output a confusion matrix.
+    Output a confusion matrix from 2D inputs.
+
+    Inputs are assumed either both LongTensor or both FloatTensor.  In the
+    LongTensor setting, the columns of input arrays y and yhat are class index
+    and the rows correspond to different (minibatch) samples.  In FloatTensor
+    setting, read below to understand better what you're doing.
 
     How: Compute the outer product `y y_{hat}^T` for
     each of the `n` samples and sum the resulting matrices.  In other words,
@@ -51,12 +85,12 @@ def confusion_matrix_2D_input(y: torch.Tensor, yhat: torch.Tensor, normalize_y=F
     return torch.einsum('nm,no->mo', w, yhat)
 
 
-def confusion_matrix(y: torch.Tensor, yhat: torch.Tensor, num_classes:int,
-                     normalize_y: bool = False,) -> torch.Tensor:
+def confusion_matrix(y: torch.Tensor, yhat: torch.Tensor, num_classes:int
+                     ) -> torch.Tensor:
     """
     A Confusion Matrix enables performance evaluation of a classifier model's
     predictions.  This function works with multi-class or multi-label data, 1D
-    input vectors or 2-D inputs.
+    input vectors or 2-D inputs.  Be very careful to give inputs of correct type.
 
     Each row index corresponds to a ground truth class.
     Each column index corresponds to predicted class.
@@ -75,8 +109,11 @@ def confusion_matrix(y: torch.Tensor, yhat: torch.Tensor, num_classes:int,
         :yhat: prediction tensor, shape is 1D or 2D.
 
         If 1-D input tensor:
-            - Standard style in sklearn, for multi-class setting.
-            - Must be a LongTensor containing the class index.
+            - type must be either
+              - LongTensor containing class index (i.e. This is the default
+                supported case in sklearn for multi-class setting)
+              - FloatTensor with probability of positive class is also allowed,
+                but only when num_classes=2.  See "Special Case" section below.
 
             - The 1-D inputs force multi-class (one-hot) semantics, and is more
             or less the canonical setting.
@@ -84,8 +121,22 @@ def confusion_matrix(y: torch.Tensor, yhat: torch.Tensor, num_classes:int,
             confusion matrix by its row index or column index, for `y` and
             `yhat` respectively.
 
+            ** Special Case:  Also support 1D floats when num_classes=2
+              - In this case, assume that values are probabilities of
+              (positive) class that is identified in the confusion matrix with
+              index 1.  Performs a soft assignment of the confusion matrix.  It
+              is useful for binary classification with label noise, or less
+              commonly when the predicted probabilities are considered as
+              soft assignment.  Here's an example input and output:
+
+                >>> y = [.7]
+                >>> yhat = [.2]
+                >>> confusion_matrix(y, yhat, 2)
+                    [[(1-.7) * (1-.2) , (1-.7) * .2]
+                     [(.7    * (1-.2) , .7     * .2]]
+
         If 2-D input tensor:
-            - Must be a FloatTensor
+            - Must be a LongTensor
             - Passing 2-D (n,c) inputs is better suited for multi-label
             data or uncertain ground truth labels or weights over samples.
               - `n` is the number of (minibatch) samples
@@ -105,8 +156,14 @@ def confusion_matrix(y: torch.Tensor, yhat: torch.Tensor, num_classes:int,
     except IndexError: pass
 
     if 1 == yhat.ndim == y.ndim:
-        # dispatch the function with 1D inputs
-        return confusion_matrix_1D_input(y, yhat, num_classes)
+        if any(isinstance(x, (torch.FloatTensor, torch.cuda.FloatTensor))
+               for x in [y, yhat]):
+            assert num_classes == 2
+            # special case for 1D probability vectors
+            return confusion_matrix_binary_soft_assignment(y=y, yhat=yhat)
+        else:
+            # dispatch the function with 1D integer inputs
+            return confusion_matrix_1D_input(y, yhat, num_classes)
     else:
         # dispatch the 2-D inputs function
         # --> but first, promote a 1D input to 2D if it exists
@@ -114,13 +171,13 @@ def confusion_matrix(y: torch.Tensor, yhat: torch.Tensor, num_classes:int,
             y = _confusion_matrix_convert_2d_shape(y, num_classes)
         elif yhat.ndim == 1:
             yhat = _confusion_matrix_convert_2d_shape(yhat, num_classes)
-        ret = confusion_matrix_2D_input(y, yhat, normalize_y)
+        ret = confusion_matrix_2D_input(y, yhat)
         assert ret.shape == (num_classes, num_classes), "sanity check"
         return ret
 
 
 def _confusion_matrix_convert_2d_shape(arr, num_classes):
-    assert isinstance(arr, (torch.LongTensor, torch.cuda.LongTensor))
+    assert not isinstance(arr, (torch.FloatTensor, torch.cuda.FloatTensor))
     arr = torch.eye(num_classes, dtype=arr.dtype, device=arr.device)[arr]
     assert arr.shape[1] == num_classes, 'sanity check'
     assert arr.ndim == 2, 'sanity check'
