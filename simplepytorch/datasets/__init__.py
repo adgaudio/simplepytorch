@@ -16,3 +16,6 @@ from .qualdr import QualDR, QualDR_Grading
 
 # Chest X-Ray
 from .chexpert import CheXpert, CheXpert_Small
+
+# Microscopy
+from .BBBC038v1_microscopy import BBBC038v1
