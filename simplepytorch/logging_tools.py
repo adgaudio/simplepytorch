@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Any
 import abc
 import atexit
 import csv
@@ -22,23 +22,24 @@ class _LogRotate_LazyPassthrough:
     """Transparent class for handling log rotation only when a method or
     attribute from the logger is accessed"""
     def __init__(self, kls, init_data_logger_func, utcnow, *args, **kwargs):
-        self._kls = kls
-        self._args = args
-        self._kwargs = kwargs
-        self._initialized_logger_instance = None
-        self.init_data_logger_func = init_data_logger_func
-        self.utcnow = utcnow
+        self.__kls = kls
+        self.__args = args
+        self.__kwargs = kwargs
+        self.__initialized_logger_instance = None
+        self.__init_data_logger_func = init_data_logger_func
+        self.__utcnow = utcnow
 
     def __getattribute__(self, attr_name):
+        P = '_LogRotate_LazyPassthrough'
         ga = object.__getattribute__
-        if ga(self, '_initialized_logger_instance') is None:
-            args, kwargs = ga(self, '_args'), ga(self, '_kwargs')
-            utcnow = ga(self, 'utcnow')
-            ga(self, 'init_data_logger_func')(utcnow, *args, **kwargs)
-            setattr(self, '_initialized_logger_instance', ga(self, '_kls')(
-                *args, **kwargs))
+        if ga(self, f'{P}__initialized_logger_instance') is None and not attr_name.startswith('_LogRotate_LazyPassthrough'):
+            args, kwargs = ga(self, f'{P}__args'), ga(self, f'{P}__kwargs')
+            utcnow = ga(self, f'{P}__utcnow')
+            setattr(self, f'{P}__initialized_logger_instance',
+                    ga(self, f'{P}__init_data_logger_func')(utcnow, *args, **kwargs))
+                    #  ga(self, f'{P}__kls')(*args, **kwargs))
         return getattr(
-            ga(self,'_initialized_logger_instance'), attr_name)
+            ga(self,f'{P}__initialized_logger_instance'), attr_name)
 
 
 class DataLogger(abc.ABC):
@@ -110,17 +111,65 @@ class DataLogger(abc.ABC):
                        for k in self.header}
         return rowdict
 
-    def writerow(self, rowdict, ignore_missing=False, raise_if_extra_keys=True):
+    def writerow(self, rowdict: Dict[str, Any], ignore_missing=False, raise_if_extra_keys=True):
         """Write a row to the file handler.  if `ignore_missing`, allow some
         values to be empty.  if raise_if_extra_keys, do not allow unrecognized keys in the dict"""
         rowdict = self._clean_rowdict(rowdict, ignore_missing, raise_if_extra_keys)
         self._write_to_file_handler(rowdict)
 
 
-class LogRotate:
-    """Store a history of any data logger to avoid overwriting old results
+class MultiplexedLogger(DataLogger):
+    """
+    Combine multiple loggers together.  The only restriction is that writerow api is stricter.
 
-    log = LogRotate(CsvLogger)(...)
+        >>> logger = MultiplexedLogger(
+            LogRotate(CsvLogger)(f'perf.csv', ['epoch', 'seconds_training_epoch', 'train_loss', 'val_loss']),
+            LogRotate(HDFLogger)(f'perf_cm.h5', ['train_confusion_matrix', 'val_confusion_matrix']))
+        >>> logger.writerow({
+            'epoch': 1, 'seconds_training_epoch': 3,
+            'train_loss': 40.3, 'val_loss': 45.5,
+            'train_confusion_matrix': np.ones((3,3)),
+            'val_confusion_matrix': np.ones((3,3))})
+    """
+    def __init__(self, *loggers: DataLogger):
+        self.loggers = loggers
+
+    def flush(self):
+        for l in self.loggers:
+            l.flush()
+
+    def close(self):
+        for l in self.loggers:
+            l.close()
+
+    def writerow(self, rowdict: Dict[str, Any], ignore_missing=False, raise_if_extra_keys=True):
+        assert ignore_missing is False, "not implemented"
+        assert raise_if_extra_keys is True, "not implemented"
+        for l in self.loggers:
+            l.writerow({x: rowdict[x] for x in l.header})
+
+    # for compatibility with DataLogger
+    @property
+    def header(self):  
+        hd = set()
+        for l in self.loggers:
+            hd.update(l.header)
+        return hd
+
+    def _init_file_handler(self, log_fp, **kwargs):
+        raise NotImplementedError('not used')
+
+    def _write_to_file_handler(self, rowdict):
+        raise NotImplementedError('not used')
+
+    def _clean_rowdict(self, rowdict, ignore_missing, raise_if_extra_keys):
+        raise NotImplementedError('not used')
+
+
+class LogRotate:
+    """Store a history of any DataLogger to avoid overwriting old results
+
+        >>> log = LogRotate(CsvLogger)(...)
 
     If the log filepath is "./a/b/c.csv" then it will get renamed to
     ./a/b/log/{utc_timestamp}_c.csv and a symlink to './a/b/c.csv' will point
@@ -145,16 +194,23 @@ class LogRotate:
             return self.init_data_logger(utcnow, log_fp, *args, **kwargs)
 
     def init_data_logger(self, utcnow, log_fp, *args, **kwargs):
-        replacement_log_fp = f'{osp.dirname(log_fp)}/log/{utcnow}_{osp.basename(log_fp)}'
+        replacement_log_fp = f'{osp.dirname(osp.abspath(log_fp))}/log/{utcnow}_{osp.basename(log_fp)}'
 
         if osp.islink(log_fp):
             os.remove(log_fp)
         rv = self.kls(replacement_log_fp, *args, **kwargs)
-        os.symlink(f'log/{osp.basename(replacement_log_fp)}', log_fp)
+        os.symlink(replacement_log_fp, log_fp)
         return rv
 
 
 class CsvLogger(DataLogger):
+    """Write data to a csv file.
+
+        >>> log = CsvLogger(f'perf.csv', ['col1', 'col2'])
+        >>> log.writerow([1, 3])
+        >>> log.writerow({'col1': 1, 'col2': 3})
+        >>> log.close()
+    """
     def _init_file_handler(self, log_fp, header, **kwargs):
         if log_fp.endswith('.csv'):
             self.fh = open(log_fp, 'w')
@@ -188,12 +244,14 @@ class HDFLogger(DataLogger):
     def _init_file_handler(self, log_fp: str, compression_level=5, *args, **kwargs):
         self.complevel = compression_level
         assert log_fp.endswith('.h5')
-        self.log_fp = log_fp
+        self.log_fp = osp.realpath(log_fp)
         self.fh = pd.HDFStore(log_fp, 'w', complevel=compression_level)
 
     def _write_to_file_handler(self, rowdict):
         for k, v in rowdict.items():
             if v is None: continue
+            if not isinstance(v, pd.DataFrame):
+                v = pd.DataFrame(v)
             self.fh.append(k, v)
 
     def flush(self):
@@ -240,8 +298,27 @@ class DoNothingLogger(DataLogger):
     def writerow(self, *args, **kwargs): pass
 
 if __name__ == "__main__":
+    # for manual TESTING
 
-    # for TESTING
+    logger = MultiplexedLogger(
+        LogRotate(CsvLogger)(f'perf.csv', ['epoch', 'seconds_training_epoch', 'train_loss', 'val_loss']),
+        LogRotate(HDFLogger)(f'perf_cm.h5', ['train_confusion_matrix', 'val_confusion_matrix']))
+    logger.writerow({
+        'epoch': 1, 'seconds_training_epoch': 3,
+        'train_loss': 40.3, 'val_loss': 45.5,
+        'train_confusion_matrix': pd.DataFrame({'a': [1,2,3], 'b': [1,1,1]}),
+        'val_confusion_matrix': pd.DataFrame({'a': [1,1,1], 'b': [1,1,1]}),})
+    logger.writerow({
+        'epoch': 1, 'seconds_training_epoch': 3,
+        'train_loss': 40.3, 'val_loss': 45.5,
+        'train_confusion_matrix': pd.DataFrame({'a': [1,2,3], 'b': [2,2,2]}),
+        'val_confusion_matrix': pd.DataFrame({'a': [2,2,2], 'b': [2,2,2]}),})
+    logger.close()
+    z = pd.HDFStore('perf_cm.h5')
+    assert z['train_confusion_matrix'].shape == (6,2)
+    assert len(set(z.keys())) == 2
+    z.close()
+
 
     a = CsvLogger('a.csv.gz', ['a', 'b'])
     b = CsvLogger('b.csv', ['a', 'b'])
@@ -269,3 +346,22 @@ if __name__ == "__main__":
     _h = open('c.pickle', 'rb')
     print(pickle.load(_h))
     print(pickle.load(_h))
+
+    #  HDFLogger
+
+    logger = LogRotate(HDFLogger)('perf_cm2.h5', ['train_confusion_matrix', 'val_confusion_matrix'])
+    logger.writerow({
+        'train_confusion_matrix': pd.DataFrame({'a': [1,2,3], 'b': [1,1,1]}),
+        'val_confusion_matrix': pd.DataFrame({'a': [1,1,1], 'b': [1,1,1]}),})
+    logger.writerow({
+        'train_confusion_matrix': pd.DataFrame({'a': [1,2,3], 'b': [2,2,2]}),
+        'val_confusion_matrix': pd.DataFrame({'a': [2,2,2], 'b': [2,2,2]}),})
+    logger.close()
+    z = pd.HDFStore('perf_cm2.h5')
+    assert z['train_confusion_matrix'].shape == (6,2)
+    assert len(set(z.keys())) == 2
+    print('HDF Store has', z.keys())
+    print('train confusion matrix\n', z['train_confusion_matrix'].shape)
+    z.close()
+
+

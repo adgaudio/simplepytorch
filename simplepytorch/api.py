@@ -8,7 +8,7 @@ from . import metrics
 from . import datasets
 from .cache import Cache
 from .cmdline import ModelConfigABC, CmdlineOptions, load_model_config
-from .logging_tools import LogRotate, CsvLogger, PickleLogger, HDFLogger, DoNothingLogger
+from .logging_tools import LogRotate, CsvLogger, PickleLogger, HDFLogger, DoNothingLogger, MultiplexedLogger
 from .early_stopping import EarlyStopping
 
 from .feedforward import (
