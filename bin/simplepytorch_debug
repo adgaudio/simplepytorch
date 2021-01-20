@@ -3,4 +3,4 @@
 arg1="$1"
 echo $arg1
 shift
-ipython -im simplepytorch -- "$arg1" $*
+ipython -i -m simplepytorch -- "$arg1" $*
