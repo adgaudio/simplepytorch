@@ -195,6 +195,7 @@ def matthews_correlation_coeff(cm):
     Original implementation here:  http://rk.kvl.dk/software/rkorrC
     Section 2.3 of the Gorodkin paper.  https://www.ncbi.nlm.nih.gov/pubmed/15556477?dopt=Abstract
     """
+    cm = cm.float()
     N = cm.sum()
     rowcol_sumprod = (cm@cm).sum()
     rowrow_sumprod = (cm@cm.T).sum()
