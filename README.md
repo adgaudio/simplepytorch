@@ -8,6 +8,13 @@ research or work, make sure in your requirements.txt to pin the version
 or reference the specific commit you used so you don't suffer unwanted
 surprises.
 
+**NOTE:** This readme and examples are a bit dated.  They describe a
+method based on the FeedForward class, but I subsequently decided that
+using inheritance as designed in the FeedForward class is too cumbersome
+for most projects.  I use this repo for its datasets, logging tools,
+metrics, plotting results, and other functions available
+simplepytorch.api.
+
 Motivation and useful features:
 ===
 
