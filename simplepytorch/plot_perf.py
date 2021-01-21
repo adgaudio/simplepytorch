@@ -149,7 +149,7 @@ def mode_1_plots(ns):
     """
     cdfs = _mode_1_get_perf_data_as_df(ns).reset_index('filename', drop=True)
 
-    timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')  # date plot was created.  nothing to do with timestamp column.
+    timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S.%f')  # date plot was created.  nothing to do with timestamp column.
     os.makedirs(join(ns.mode1_savefig_dir, 'archive'), exist_ok=True)
     for fig, ax, col in make_plots(ns, cdfs):
         if not ns.savefig: continue
@@ -166,7 +166,7 @@ def mode_2_plots(ns):
     that experiment"""
     # mode 2: compare train to val performance
     cdfs_mode2 = {}
-    timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S')  # date plot was created.  nothing to do with timestamp column.
+    timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S.%f')  # date plot was created.  nothing to do with timestamp column.
     for run_id in get_run_ids(ns):
         dirp = f'{ns.data_dir}/{run_id}/log'
         if not os.path.exists(dirp):
@@ -203,6 +203,7 @@ def mode_3_plots(ns):
     if ns.rolling_mean:
         cdfs = cdfs.rolling(ns.rolling_mean).mean()
 
+    timestamp = dt.datetime.utcnow().strftime('%Y%m%dT%H%M%S.%f')  # date plot was created.  nothing to do with timestamp column.
     plot_cols = [col for col in cdfs.columns if re.search(ns.col_regex, col)]
     for col in plot_cols:
         fig, ax = plt.subplots(1,1, figsize=(12,10))
